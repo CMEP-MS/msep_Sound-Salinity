@@ -1,0 +1,125 @@
+---
+title: "Salinity Seasonality"
+format: 
+    html:
+        code-fold: true
+        toc: true
+        embed-resources: true
+    pdf: 
+        echo: false
+        toc: true
+warning: false
+message: false
+error: true
+---
+
+```{r}
+library(tidyverse)
+library(zoo)
+
+load(here::here("data",
+                "mssnd_salinity.rda"))
+list2env(mssnd_salinity, envir = .GlobalEnv)
+rm(mssnd_salinity)
+```
+
+Assign sites to Western, Central, or Eastern Sound.  
+
+```{r}
+siteInfo <- siteInfo |> 
+    mutate(SoundPortion = case_when(str_detect(station_nm, regex("Rigolets|Grand Pass|Merrill", ignore_case = TRUE)) ~ "Western",
+                                    str_detect(station_nm, regex("Gulfport|East Ship|Biloxi", ignore_case = TRUE)) ~ "Central",
+                                    .default = "Other"))
+```
+
+
+Summarize and plot.  
+
+Downloaded data contained high-frequency values, from which daily mean salinity was calculated. Those daily means were then averaged to month for each station.  
+
+```{r}
+monthly <- daily |>
+    mutate(yearmonth = as.yearmon(date)) |> 
+    summarize(.by = c(site_no, yearmonth),
+              min = min(sal_mean, na.rm = TRUE),
+              median = median(sal_mean, na.rm = TRUE),
+              mean = mean(sal_mean, na.rm = TRUE),
+              max = max(sal_mean, na.rm = TRUE)) |> 
+    mutate(across(c(min, max), ~ na_if(., Inf)),
+           month = lubridate::month(yearmonth, label = TRUE, abbr = TRUE),
+           year = lubridate::year(yearmonth))
+
+monthly_long <- monthly |> 
+    pivot_longer(min:max,
+                 names_to = "stat",
+                 values_to = "salinity") |> 
+    left_join(siteInfo)
+```
+
+
+```{r}
+#| eval: false
+
+ggplot(filter(monthly_long, stat == "mean"),
+       aes(x = yearmonth,
+           y = salinity,
+           group = site_no,
+           col = SoundPortion,
+           fill = SoundPortion,
+           shape = SoundPortion)) +
+    geom_point(alpha = 0.6) +
+    geom_line(alpha = 0.4) +
+    scale_color_brewer(palette = "Set1") +
+    theme_bw()
+    
+```
+
+Mean monthly salinity (mean of daily means) by station x year:  
+
+```{r}
+#| label: fig-byYear
+#| fig-cap: "Mean monthly salinity for each Mississippi Sound USGS station, faceted by year."
+#| fig-width: 9.5
+#| fig-height: 6
+ggplot(filter(monthly_long, stat == "mean", year < 2025),
+       aes(x = month,
+           y = salinity,
+           group = SoundPortion,
+           col = SoundPortion,
+           fill = SoundPortion,
+           shape = SoundPortion)) +
+    geom_point(alpha = 0.7,
+                size = 2) +
+    geom_smooth(method = "loess",
+                se = FALSE) +
+    facet_wrap(~year) +
+    scale_color_brewer(palette = "Set1") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 40))
+```
+
+All years combined:  
+
+```{r}
+#| label: fig-boxplot
+#| fig-cap: "Mean monthly salinity for each Mississippi Sound USGS station, across years. Each point represents a single station in a single year."
+#| fig-width: 9.5
+#| fig-height: 6
+ggplot(filter(monthly_long, stat == "mean"),
+       aes(x = month,
+           y = salinity,
+           col = SoundPortion,
+           fill = SoundPortion,
+           shape = SoundPortion)) +
+    geom_boxplot(outliers = FALSE,
+                 fill = NA) +
+    geom_jitter(alpha = 0.3) +
+    scale_color_brewer(palette = "Set1") +
+    theme_bw()
+```
+
+From this second graph, I'd say April-May-June has the lowest salinity, and Oct-Dec is highest.  
+
+The graph of individual years, I'd say that's about right, with the low period starting in March sometimes. April and May are generally encapsulated in the low months. Highest months can sort of vary, anytime from Sept-Jan depending on conditions, but Nov-Dec are generally included.  
+
+
